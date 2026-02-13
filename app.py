@@ -21,10 +21,14 @@ st.set_page_config(page_title="F1 AI Agent Manager", layout="wide")
 st.title("🏎️ F1 Database & AI Agent")
 
 # API Kulcs kezelése (Local vagy Streamlit Secrets)
-api_key = st.sidebar.text_input("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", type="password")
+api_key = st.sidebar.text_input("your api key", type="password")
 
 if api_key:
-    llm = ChatGroq(temperature=0, model_name="llama-3.1-70b-versatile", groq_api_key=api_key)
+    llm = ChatGroq(
+    temperature=0, 
+    model_name="llama-4-scout", # Ezt a nevet pontosan így írd be
+    groq_api_key=api_key
+)
     db = SQLDatabase.from_uri("sqlite:///f1_data.db")
     agent_executor = create_sql_agent(llm, db=db, agent_type="openai-tools", verbose=True)
 
@@ -72,4 +76,5 @@ with tab3:
                         response = agent_executor.invoke(user_question)
                         st.write(response["output"])
                     except Exception as e:
+
                         st.error(f"Hiba történt: {e}")
