@@ -29,7 +29,17 @@ with st.sidebar:
     st.info(f"Aktív modell: {model_choice}")
 
 # --- AI ÜGYNÖK INICIALIZÁLÁSA ---
-agent_executor = None
+# --- JAVÍTOTT ÜGYNÖK KONFIGURÁCIÓ ---
+agent_executor = create_sql_agent(
+    llm, 
+    db=db, 
+    agent_type="zero-shot-react-description", 
+    verbose=True,
+    handle_parsing_errors=True,
+    max_iterations=10,        # Növeljük a próbálkozások számát (alapértelmezett 15, de néha kevesebb)
+    max_execution_time=30,    # Maximum 30 másodpercig gondolkodhat egy kérdésen
+    early_stopping_method="generate" # Ha eléri a limitet, próbáljon meg egy választ generálni abból, amije van
+)
 if api_key:
     try:
         llm = ChatGroq(
@@ -97,3 +107,4 @@ with tab3:
                         st.write(result["output"])
                 else:
                     st.error("Az AI nem áll készen.")
+
