@@ -26,7 +26,7 @@ api_key = st.sidebar.text_input("your api key", type="password")
 if api_key:
     llm = ChatGroq(
     temperature=0, 
-    model_name="llama-3.3-70b-specdec", # Ez a pontos API név
+    model_name="llama-3.3-70b-versatile", # Ez a Groq hivatalos, hosszú távú azonosítója
     groq_api_key=api_key
 )
     db = SQLDatabase.from_uri("sqlite:///f1_data.db")
@@ -78,4 +78,5 @@ with tab3:
                     except Exception as e:
 
                         st.error(f"Hiba történt: {e}")
+
 
