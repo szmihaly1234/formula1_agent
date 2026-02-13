@@ -5,7 +5,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain_groq import ChatGroq
 
-# --- ADATBÁZIS ALAPHELYZETBE ÁLLÍTÁSA ---
+# --- ADATBÁZIS INICIALIZÁLÁSA ---
 def init_db():
     conn = sqlite3.connect("f1_data.db")
     c = conn.cursor()
@@ -24,22 +24,11 @@ st.title("🏎️ F1 Database & AI Agent")
 with st.sidebar:
     st.header("Beállítások")
     api_key = st.text_input("Groq API Key", type="password", placeholder="gsk_...")
-    # A legfrissebb stabil modellnév a listádról
     model_choice = "llama-3.3-70b-versatile"
     st.info(f"Aktív modell: {model_choice}")
 
 # --- AI ÜGYNÖK INICIALIZÁLÁSA ---
-# --- JAVÍTOTT ÜGYNÖK KONFIGURÁCIÓ ---
-agent_executor = create_sql_agent(
-    llm, 
-    db=db, 
-    agent_type="zero-shot-react-description", 
-    verbose=True,
-    handle_parsing_errors=True,
-    max_iterations=10,        # Növeljük a próbálkozások számát (alapértelmezett 15, de néha kevesebb)
-    max_execution_time=30,    # Maximum 30 másodpercig gondolkodhat egy kérdésen
-    early_stopping_method="generate" # Ha eléri a limitet, próbáljon meg egy választ generálni abból, amije van
-)
+agent_executor = None
 if api_key:
     try:
         llm = ChatGroq(
@@ -49,13 +38,16 @@ if api_key:
         )
         db = SQLDatabase.from_uri("sqlite:///f1_data.db")
         
-        # Hibatűrő ügynök létrehozása (szöveges típus-megadással)
+        # JAVÍTOTT ÜGYNÖK: Magasabb iterációs limittel a "time limit" hiba ellen
         agent_executor = create_sql_agent(
             llm, 
             db=db, 
             agent_type="zero-shot-react-description", 
             verbose=True,
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            max_iterations=10,             # Több próbálkozást engedünk
+            max_execution_time=30,         # 30 másodperc időlimit
+            early_stopping_method="generate"
         )
     except Exception as e:
         st.error(f"AI hiba: {e}")
@@ -100,11 +92,16 @@ with tab3:
             
             with st.chat_message("assistant"):
                 if agent_executor:
-                    with st.spinner("Lekérdezés futtatása..."):
-                        # Magyar nyelvű válasz kikényszerítése
-                        full_query = f"{user_input}. Válaszolj magyarul!"
-                        result = agent_executor.invoke(full_query)
-                        st.write(result["output"])
+                    with st.spinner("Az ügynök elemzi az adatbázist..."):
+                        try:
+                            # Adunk neki egy kis kontextust, hogy tudja melyik táblát nézze
+                            instruction = (
+                                f"Feladat: {user_input}. "
+                                "Használd a 'drivers' táblát. Válaszolj magyarul!"
+                            )
+                            result = agent_executor.invoke(instruction)
+                            st.write(result["output"])
+                        except Exception as e:
+                            st.error(f"Az AI kifutott az időből vagy hibát vétett: {e}")
                 else:
                     st.error("Az AI nem áll készen.")
-
