@@ -1,24 +1,32 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import os
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain_groq import ChatGroq
 
-# --- ADATBÁZIS INICIALIZÁLÁSA ---
-def init_db():
-    conn = sqlite3.connect("f1_data.db")
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS drivers 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, surname TEXT, points REAL)''')
-    conn.commit()
+# --- PROFI ADATBÁZIS BETÖLTÉSE (CSV -> SQLITE) ---
+def init_kaggle_db():
+    conn = sqlite3.connect("f1_kaggle.db")
+    # Csak akkor töltjük be, ha még üres az adatbázis
+    tables_needed = ['drivers', 'results', 'constructors', 'races']
+    
+    for table in tables_needed:
+        csv_file = f"{table}.csv"
+        if os.path.exists(csv_file):
+            # Beolvassuk a CSV-t és beleírjuk az SQLite-ba
+            df = pd.read_csv(csv_file)
+            df.to_sql(table, conn, if_exists="replace", index=False)
+    
     conn.close()
 
-init_db()
+init_kaggle_db()
 
 # --- OLDAL BEÁLLÍTÁSAI ---
-st.set_page_config(page_title="F1 AI Agent Manager", layout="wide", page_icon="🏎️")
-st.title("🏎️ F1 Database & AI Agent")
+st.set_page_config(page_title="F1 Kaggle AI Explorer", layout="wide", page_icon="🏎️")
+st.title("🏎️ Professional F1 Historical Data Explorer")
+st.markdown("Ez az alkalmazás a teljes Kaggle Ergast F1 datasetet használja (1950-2024).")
 
 # Sidebar az API kulcsnak
 with st.sidebar:
@@ -31,77 +39,65 @@ with st.sidebar:
 agent_executor = None
 if api_key:
     try:
-        llm = ChatGroq(
-            temperature=0, 
-            model_name=model_choice, 
-            groq_api_key=api_key
-        )
-        db = SQLDatabase.from_uri("sqlite:///f1_data.db")
+        llm = ChatGroq(temperature=0, model_name=model_choice, groq_api_key=api_key)
+        # Itt már a Kaggle adatbázisra mutatunk
+        db = SQLDatabase.from_uri("sqlite:///f1_kaggle.db")
         
-        # JAVÍTOTT ÜGYNÖK: Magasabb iterációs limittel a "time limit" hiba ellen
         agent_executor = create_sql_agent(
             llm, 
             db=db, 
             agent_type="zero-shot-react-description", 
             verbose=True,
             handle_parsing_errors=True,
-            max_iterations=10,             # Több próbálkozást engedünk
-            max_execution_time=30,         # 30 másodperc időlimit
-            early_stopping_method="generate"
+            max_iterations=15 # Több tábla miatt több próbálkozást engedünk
         )
     except Exception as e:
         st.error(f"AI hiba: {e}")
 
 # --- FELÜLET (TABS) ---
-tab1, tab2, tab3 = st.tabs(["📊 Ranglista", "➕ Adatbevitel", "🤖 AI Chatbot"])
+tab1, tab2 = st.tabs(["🔍 Adatbázis Betekintő", "🤖 AI Ügynök (Chat)"])
 
 with tab1:
-    st.header("Pilóták pontszámai")
-    conn = sqlite3.connect("f1_data.db")
-    df = pd.read_sql_query("SELECT surname AS 'Név', points AS 'Pont' FROM drivers ORDER BY points DESC", conn)
+    st.header("Nyers adatok böngészése")
+    table_to_show = st.selectbox("Válassz táblát:", ["drivers", "constructors", "races", "results"])
+    
+    conn = sqlite3.connect("f1_kaggle.db")
+    # Csak az első 100 sort mutatjuk a sebesség kedvéért
+    df_preview = pd.read_sql_query(f"SELECT * FROM {table_to_show} LIMIT 100", conn)
     conn.close()
     
-    if df.empty:
-        st.info("Még nincsenek adatok. Adj hozzá pilótákat a következő fülön!")
-    else:
-        st.dataframe(df, use_container_width=True)
+    st.write(f"Az `{table_to_show}` tábla első 100 sora:")
+    st.dataframe(df_preview, use_container_width=True)
 
 with tab2:
-    st.header("Új eredmény rögzítése")
-    with st.form("add_form", clear_on_submit=True):
-        name = st.text_input("Pilóta vezetékneve")
-        pts = st.number_input("Pontszám", min_value=0.0, step=0.5)
-        if st.form_submit_button("Mentés"):
-            if name:
-                conn = sqlite3.connect("f1_data.db")
-                conn.execute("INSERT INTO drivers (surname, points) VALUES (?, ?)", (name, pts))
-                conn.commit()
-                conn.close()
-                st.success(f"Mentve: {name}")
-                st.rerun()
+    st.header("Kérdezz bármit az F1 történelméről!")
+    st.info("""
+    Példa kérdések:
+    - Ki nyerte a legtöbb világbajnoki címet?
+    - Melyik csapat szerezte a legtöbb pontot 2023-ban?
+    - Hány különböző nemzetiségű pilóta indult a Ferrarinál?
+    """)
 
-with tab3:
-    st.header("Kérdezz az F1 Ügynöktől")
     if not api_key:
         st.warning("Kérlek, add meg a Groq API kulcsot a sidebaron!")
     else:
-        user_input = st.chat_input("Pl: Ki szerezte a legtöbb pontot?")
+        user_input = st.chat_input("Írd ide a kérdésed...")
         if user_input:
             with st.chat_message("user"):
                 st.write(user_input)
             
             with st.chat_message("assistant"):
                 if agent_executor:
-                    with st.spinner("Az ügynök elemzi az adatbázist..."):
+                    with st.spinner("Az AI elemzi a kapcsolatokat a táblák között..."):
                         try:
-                            # Adunk neki egy kis kontextust, hogy tudja melyik táblát nézze
-                            instruction = (
-                                f"Feladat: {user_input}. "
-                                "Használd a 'drivers' táblát. Válaszolj magyarul!"
+                            # Komplexebb instrukció a több tábla miatt
+                            full_query = (
+                                f"Használd a drivers, results, constructors és races táblákat. "
+                                f"Feladat: {user_input}. Válaszolj magyarul!"
                             )
-                            result = agent_executor.invoke(instruction)
+                            result = agent_executor.invoke(full_query)
                             st.write(result["output"])
                         except Exception as e:
-                            st.error(f"Az AI kifutott az időből vagy hibát vétett: {e}")
+                            st.error(f"Hiba: {e}")
                 else:
                     st.error("Az AI nem áll készen.")
