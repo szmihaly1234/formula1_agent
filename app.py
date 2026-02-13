@@ -1,8 +1,14 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-# Újabb verzióknál az AgentType-ot gyakran innen érdemes hívni:
-from langchain.agents.agent_types import AgentType
+
+# Próbáljuk meg a specifikusabb importálást
+try:
+    from langchain.agents import AgentType
+except ImportError:
+    # Ha a fenti nem megy, az újabb verziókban itt található:
+    from langchain.agents.agent_types import AgentType
+
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain_groq import ChatGroq
@@ -114,4 +120,5 @@ with tab3:
                         st.write(response["output"])
                     except Exception as e:
                         st.error(f"Az AI nem tudott válaszolni. Hiba: {e}")
+
 
